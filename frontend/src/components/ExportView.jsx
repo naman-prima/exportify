@@ -2,39 +2,6 @@ import { useState, useEffect } from 'react';
 import ColumnSelector from './ColumnSelector';
 import { api } from '../utils/api';
 
-const TEMPLATES = {
-  'orders-7d': {
-    title: 'Orders — Last 7 Days',
-    entity: 'orders',
-    datePreset: '7d',
-    columns: ['id', 'name', 'order_number', 'email', 'phone', 'created_at', 'status', 'financial_status', 'fulfillment_status', 'currency', 'total_price', 'total_discounts', 'payment_gateway_names', 'payment_method', 'customer_first_name', 'customer_last_name', 'customer_email', 'shipping_city', 'shipping_province', 'shipping_country', 'line_title', 'line_sku', 'line_quantity', 'line_price'],
-  },
-  'orders-30d': {
-    title: 'Orders — Last 30 Days',
-    entity: 'orders',
-    datePreset: '30d',
-    columns: ['id', 'name', 'order_number', 'email', 'phone', 'created_at', 'processed_at', 'status', 'financial_status', 'fulfillment_status', 'currency', 'total_price', 'subtotal_price', 'total_discounts', 'total_tax', 'payment_gateway_names', 'payment_method', 'customer_first_name', 'customer_last_name', 'customer_email', 'customer_phone', 'shipping_first_name', 'shipping_last_name', 'shipping_address1', 'shipping_city', 'shipping_province', 'shipping_zip', 'shipping_country', 'shipping_phone', 'billing_first_name', 'billing_last_name', 'billing_city', 'billing_country', 'line_title', 'line_variant_title', 'line_sku', 'line_quantity', 'line_price', 'line_total_discount', 'line_product_id', 'line_vendor'],
-  },
-  'orders-all': {
-    title: 'All Orders',
-    entity: 'orders',
-    datePreset: null,
-    columns: [],
-  },
-  'products': {
-    title: 'All Products',
-    entity: 'products',
-    datePreset: null,
-    columns: [],
-  },
-  'custom': {
-    title: 'Custom Export',
-    entity: 'orders',
-    datePreset: null,
-    columns: [],
-  },
-};
-
 function getDateFromPreset(preset) {
   if (!preset) return { from: '', to: '' };
   const now = new Date();
@@ -46,35 +13,56 @@ function getDateFromPreset(preset) {
   return { from: from.toISOString().split('T')[0], to };
 }
 
+const QUICK_FILTERS = [
+  { id: 'orders-7d', label: 'Orders — Last 7 days', entity: 'orders', datePreset: '7d' },
+  { id: 'orders-30d', label: 'Orders — Last 30 days', entity: 'orders', datePreset: '30d' },
+  { id: 'orders-all', label: 'All Orders', entity: 'orders', datePreset: '' },
+  { id: 'products-all', label: 'All Products', entity: 'products', datePreset: '' },
+];
+
 const ORDER_FILTERS = [
   { value: 'status', label: 'Order Status', options: ['open', 'cancelled', 'archived'] },
   { value: 'financial_status', label: 'Payment Status', options: ['paid', 'pending', 'refunded', 'partially_paid', 'voided'] },
   { value: 'fulfillment_status', label: 'Fulfillment', options: ['fulfilled', 'unfulfilled', 'partial'] },
 ];
 
-export default function ExportView({ template, onJobCreated }) {
-  const config = TEMPLATES[template] || TEMPLATES['custom'];
-  const [entity, setEntity] = useState(config.entity);
-  const [columns, setColumns] = useState(config.columns);
+export default function ExportView({ onJobCreated }) {
+  const [entity, setEntity] = useState('orders');
+  const [columns, setColumns] = useState([]);
   const [format, setFormat] = useState('xlsx');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [datePreset, setDatePreset] = useState(config.datePreset || '');
+  const [datePreset, setDatePreset] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [financialFilter, setFinancialFilter] = useState('');
   const [fulfillmentFilter, setFulfillmentFilter] = useState('');
-  const [showColumns, setShowColumns] = useState(template === 'custom' || template === 'orders-all' || template === 'products');
+  const [showColumns, setShowColumns] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  const [activeQuick, setActiveQuick] = useState('');
 
-  useEffect(() => {
-    const dates = getDateFromPreset(config.datePreset);
-    setDateFrom(dates.from);
-    setDateTo(dates.to);
-  }, []);
+  const applyQuickFilter = (qf) => {
+    setActiveQuick(qf.id);
+    setEntity(qf.entity);
+    setColumns([]);
+    setStatusFilter('');
+    setFinancialFilter('');
+    setFulfillmentFilter('');
+    if (qf.datePreset) {
+      setDatePreset(qf.datePreset);
+      const dates = getDateFromPreset(qf.datePreset);
+      setDateFrom(dates.from);
+      setDateTo(dates.to);
+    } else {
+      setDatePreset('');
+      setDateFrom('');
+      setDateTo('');
+    }
+  };
 
   const handleDatePreset = (preset) => {
     setDatePreset(preset);
+    setActiveQuick('');
     const dates = getDateFromPreset(preset);
     setDateFrom(dates.from);
     setDateTo(dates.to);
@@ -107,34 +95,45 @@ export default function ExportView({ template, onJobCreated }) {
     }
   };
 
-  const isCustom = template === 'custom';
-
   return (
     <div className="export-view">
-      <div className="export-header">
-        <h1>{config.title}</h1>
-        <div className="format-toggle">
-          <button className={format === 'xlsx' ? 'active' : ''} onClick={() => setFormat('xlsx')}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            Excel
-          </button>
-          <button className={format === 'csv' ? 'active' : ''} onClick={() => setFormat('csv')}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-            CSV
-          </button>
+      {/* Quick Filters */}
+      <div className="quick-section">
+        <label className="section-label">Quick Export</label>
+        <div className="quick-pills">
+          {QUICK_FILTERS.map((qf) => (
+            <button
+              key={qf.id}
+              className={`quick-pill ${activeQuick === qf.id ? 'active' : ''}`}
+              onClick={() => applyQuickFilter(qf)}
+            >
+              {qf.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {isCustom && (
-        <div className="config-section">
+      <div className="divider"><span>or configure manually</span></div>
+
+      {/* Entity + Format row */}
+      <div className="row-config">
+        <div className="config-section flex-1">
           <label className="section-label">Data Type</label>
           <div className="entity-pills">
-            <button className={entity === 'orders' ? 'entity-pill active' : 'entity-pill'} onClick={() => { setEntity('orders'); setColumns([]); }}>Orders</button>
-            <button className={entity === 'products' ? 'entity-pill active' : 'entity-pill'} onClick={() => { setEntity('products'); setColumns([]); }}>Products</button>
+            <button className={entity === 'orders' ? 'entity-pill active' : 'entity-pill'} onClick={() => { setEntity('orders'); setColumns([]); setActiveQuick(''); }}>Orders</button>
+            <button className={entity === 'products' ? 'entity-pill active' : 'entity-pill'} onClick={() => { setEntity('products'); setColumns([]); setActiveQuick(''); }}>Products</button>
           </div>
         </div>
-      )}
+        <div className="config-section">
+          <label className="section-label">Format</label>
+          <div className="format-toggle">
+            <button className={format === 'xlsx' ? 'active' : ''} onClick={() => setFormat('xlsx')}>Excel</button>
+            <button className={format === 'csv' ? 'active' : ''} onClick={() => setFormat('csv')}>CSV</button>
+          </div>
+        </div>
+      </div>
 
+      {/* Date Range */}
       {entity === 'orders' && (
         <div className="config-section">
           <label className="section-label">Date Range</label>
@@ -148,16 +147,17 @@ export default function ExportView({ template, onJobCreated }) {
           <div className="date-inputs">
             <div className="date-field">
               <label>From</label>
-              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setDatePreset('custom'); }} />
+              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setDatePreset('custom'); setActiveQuick(''); }} />
             </div>
             <div className="date-field">
               <label>To</label>
-              <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setDatePreset('custom'); }} />
+              <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setDatePreset('custom'); setActiveQuick(''); }} />
             </div>
           </div>
         </div>
       )}
 
+      {/* Status Filters */}
       {entity === 'orders' && (
         <div className="config-section">
           <label className="section-label">Filters</label>
@@ -168,6 +168,7 @@ export default function ExportView({ template, onJobCreated }) {
                 <select
                   value={f.value === 'status' ? statusFilter : f.value === 'financial_status' ? financialFilter : fulfillmentFilter}
                   onChange={(e) => {
+                    setActiveQuick('');
                     if (f.value === 'status') setStatusFilter(e.target.value);
                     else if (f.value === 'financial_status') setFinancialFilter(e.target.value);
                     else setFulfillmentFilter(e.target.value);
@@ -182,18 +183,18 @@ export default function ExportView({ template, onJobCreated }) {
         </div>
       )}
 
+      {/* Columns */}
       <div className="config-section">
         <div className="section-label-row">
           <label className="section-label">Columns</label>
           <button className="toggle-link" onClick={() => setShowColumns(!showColumns)}>
-            {showColumns ? 'Hide' : 'Customize'}
+            {showColumns ? 'Hide columns' : 'Customize columns'}
           </button>
         </div>
-        {!showColumns && columns.length > 0 && (
-          <p className="columns-summary">{columns.length} columns selected (using template defaults)</p>
-        )}
-        {!showColumns && columns.length === 0 && (
-          <p className="columns-summary">All default columns will be exported</p>
+        {!showColumns && (
+          <p className="columns-summary">
+            {columns.length > 0 ? `${columns.length} columns selected` : 'All default columns will be exported'}
+          </p>
         )}
         {showColumns && (
           <ColumnSelector entity={entity} selected={columns} onChange={setColumns} />

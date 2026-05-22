@@ -38,13 +38,23 @@ export class OAuthCallbackController {
 
       this.logger.log(`App installed successfully for merchant: ${result.merchant_id}`);
 
+      // Redirect to the embedded app frontend with merchant_id
+      const appBaseUrl = process.env.RATIO_APP_FRONTEND_URL;
+      if (appBaseUrl) {
+        return res.redirect(`${appBaseUrl}?merchant_id=${result.merchant_id}`);
+      }
+
       return res.status(200).send(`
         <html><body>
           <h1>App Installed Successfully!</h1>
           <p>Merchant <strong>${result.merchant_id}</strong> has installed your app.</p>
-          <p>Access token injected. Your API routes are now live.</p>
-          <p>Scopes granted: <code>${result.scopes}</code></p>
-          <p style="color: #666; font-size: 0.9em;">You can close this window.</p>
+          <p>You can now use Exportify from your store dashboard.</p>
+          <script>
+            // Try to pass merchant_id to the parent window if embedded
+            if (window.opener) {
+              window.opener.postMessage({ type: 'merchant_installed', merchant_id: '${result.merchant_id}' }, '*');
+            }
+          </script>
         </body></html>
       `);
     } catch (error: any) {

@@ -1,13 +1,26 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
-// In production, merchant_id comes from the embedded app context.
-// For dev, read from env or default.
+// Merchant ID priority:
+// 1. URL query param ?merchant_id=xxx (set by platform or OAuth redirect)
+// 2. localStorage (persisted from previous session)
+// 3. VITE_MERCHANT_ID env var (dev fallback)
 function getMerchantId() {
+  // Check URL params first (embedded app context)
+  const urlParams = new URLSearchParams(window.location.search);
+  const fromUrl = urlParams.get('merchant_id');
+  if (fromUrl) {
+    localStorage.setItem('merchant_id', fromUrl);
+    return fromUrl;
+  }
   return localStorage.getItem('merchant_id') || import.meta.env.VITE_MERCHANT_ID || '';
 }
 
 export function setMerchantId(id) {
   localStorage.setItem('merchant_id', id);
+}
+
+export function clearMerchantId() {
+  localStorage.removeItem('merchant_id');
 }
 
 async function request(path, options = {}) {

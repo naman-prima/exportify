@@ -103,10 +103,39 @@ body {
 .link-btn { background: none; border: none; color: var(--navy); font-size: 13px; font-weight: 600; cursor: pointer; }
 .link-btn:hover { text-decoration: underline; }
 
+/* ─── Topbar Tabs ─── */
+.topbar-tabs { display: flex; gap: 2px; }
+.tab {
+  padding: 7px 18px; border: none; background: none;
+  font-size: 13px; font-weight: 500; color: rgba(255,255,255,.6);
+  cursor: pointer; border-radius: 5px; transition: all 120ms;
+}
+.tab:hover { color: #fff; background: rgba(255,255,255,.1); }
+.tab.active { color: #fff; background: rgba(255,255,255,.15); }
+
 /* ─── Export View ─── */
 .export-view { padding: 20px 24px; }
-.export-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-.export-header h1 { font-size: 22px; font-weight: 700; color: var(--navy); }
+
+/* Quick filters */
+.quick-section { margin-bottom: 20px; }
+.quick-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.quick-pill {
+  padding: 10px 18px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); font-size: 13px; font-weight: 500;
+  cursor: pointer; color: var(--text-mid); transition: all 120ms;
+}
+.quick-pill:hover { border-color: var(--navy); color: var(--navy); }
+.quick-pill.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+.divider {
+  display: flex; align-items: center; gap: 16px; margin: 24px 0;
+  color: var(--text-light); font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+}
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.row-config { display: flex; gap: 12px; }
+.row-config .config-section { margin-bottom: 12px; }
+.flex-1 { flex: 1; }
 .format-toggle { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .format-toggle button {
   display: flex; align-items: center; gap: 6px;
