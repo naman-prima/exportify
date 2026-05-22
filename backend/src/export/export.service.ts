@@ -146,7 +146,10 @@ export class ExportService {
         jobId,
       );
 
-      const rows = this.flattenToRows(allItems, columns, sheet.entity);
+      // Apply client-side date filters (API doesn't support date filtering)
+      const filteredItems = this.applyDateFilters(allItems, sheet.filters || []);
+
+      const rows = this.flattenToRows(filteredItems, columns, sheet.entity);
 
       await this.supabase.updateSheetProgress(sheet.id, { exported_rows: rows.length });
 
@@ -257,15 +260,51 @@ export class ExportService {
     return [];
   }
 
-  // ─── Build query params from filters ───
+  // ─── Build query params from filters (exclude date filters — handled client-side) ───
+
+  private static DATE_FILTER_FIELDS = new Set(['created_at_min', 'created_at_max', 'updated_at_min', 'updated_at_max']);
 
   private buildQueryParams(filters: any[]): Record<string, string> {
     const params: Record<string, string> = {};
     if (!filters) return params;
     for (const filter of filters) {
-      params[filter.field] = filter.value;
+      if (!ExportService.DATE_FILTER_FIELDS.has(filter.field)) {
+        params[filter.field] = filter.value;
+      }
     }
     return params;
+  }
+
+  // ─── Client-side date filtering ───
+
+  private applyDateFilters(items: any[], filters: any[]): any[] {
+    if (!filters || filters.length === 0) return items;
+
+    const createdMin = filters.find((f) => f.field === 'created_at_min')?.value;
+    const createdMax = filters.find((f) => f.field === 'created_at_max')?.value;
+    const updatedMin = filters.find((f) => f.field === 'updated_at_min')?.value;
+    const updatedMax = filters.find((f) => f.field === 'updated_at_max')?.value;
+
+    if (!createdMin && !createdMax && !updatedMin && !updatedMax) return items;
+
+    const minDate = createdMin ? new Date(createdMin).getTime() : null;
+    const maxDate = createdMax ? new Date(createdMax + 'T23:59:59.999Z').getTime() : null;
+    const uMinDate = updatedMin ? new Date(updatedMin).getTime() : null;
+    const uMaxDate = updatedMax ? new Date(updatedMax + 'T23:59:59.999Z').getTime() : null;
+
+    const filtered = items.filter((item) => {
+      const created = item.created_at ? new Date(item.created_at).getTime() : null;
+      const updated = item.updated_at ? new Date(item.updated_at).getTime() : null;
+
+      if (minDate && created && created < minDate) return false;
+      if (maxDate && created && created > maxDate) return false;
+      if (uMinDate && updated && updated < uMinDate) return false;
+      if (uMaxDate && updated && updated > uMaxDate) return false;
+      return true;
+    });
+
+    this.logger.log(`Date filter: ${items.length} → ${filtered.length} items`);
+    return filtered;
   }
 
   // ─── Flatten items to rows (Matrixify multi-row style) ───

@@ -1,151 +1,112 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../utils/api';
 
-function formatBytes(bytes) {
-  if (!bytes) return '-';
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+function fmtBytes(b) {
+  if (!b) return '--';
+  return b < 1024 * 1024 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
 }
 
-function formatTime(iso) {
-  if (!iso) return '-';
-  return new Date(iso).toLocaleString();
+function fmtAgo(iso) {
+  if (!iso) return '';
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  return h < 24 ? h + 'h ago' : Math.floor(h / 24) + 'd ago';
 }
 
-function StatusBadge({ status }) {
-  const colors = {
-    pending: '#f59e0b',
-    running: '#3b82f6',
-    completed: '#10b981',
-    failed: '#ef4444',
-    cancelled: '#6b7280',
-  };
-  return (
-    <span className="status-badge" style={{ background: colors[status] || '#6b7280' }}>
-      {status}
-    </span>
-  );
-}
-
-function SheetProgress({ sheets }) {
-  if (!sheets || sheets.length === 0) return null;
-  return (
-    <div className="sheet-progress">
-      {sheets.map((s) => (
-        <div key={s.id} className="sheet-prog-item">
-          <span className="entity-tag">{s.entity}</span>
-          <span>{s.processed_items || 0} / {s.total_items || '?'} items</span>
-          <span>{s.exported_rows || 0} rows</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export default function JobList({ refreshTrigger }) {
+export default function JobList({ refreshTrigger, compact, limit }) {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState({});
-  const intervalRef = useRef(null);
+  const poll = useRef(null);
 
-  const loadJobs = async () => {
+  const load = async () => {
     try {
-      const data = await api.getJobs();
-      setJobs(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error('Failed to load jobs', e);
-    } finally {
-      setLoading(false);
-    }
+      const d = await api.getJobs();
+      setJobs(Array.isArray(d) ? d : []);
+    } catch (e) { /* */ }
+    finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    loadJobs();
-  }, [refreshTrigger]);
+  useEffect(() => { load(); }, [refreshTrigger]);
 
-  // Poll for running jobs
   useEffect(() => {
-    const hasRunning = jobs.some((j) => j.status === 'running' || j.status === 'pending');
-    if (hasRunning) {
-      intervalRef.current = setInterval(loadJobs, 3000);
-    } else {
-      clearInterval(intervalRef.current);
-    }
-    return () => clearInterval(intervalRef.current);
+    const running = jobs.some((j) => j.status === 'running' || j.status === 'pending');
+    if (running) poll.current = setInterval(load, 3000);
+    else clearInterval(poll.current);
+    return () => clearInterval(poll.current);
   }, [jobs]);
 
-  const handleDownload = async (jobId) => {
-    setDownloading((prev) => ({ ...prev, [jobId]: true }));
+  const download = async (id) => {
+    setDownloading((p) => ({ ...p, [id]: true }));
     try {
-      const { downloadUrl } = await api.getDownloadUrl(jobId);
+      const { downloadUrl } = await api.getDownloadUrl(id);
       if (downloadUrl) window.open(downloadUrl, '_blank');
-    } catch (e) {
-      alert('Download failed: ' + e.message);
-    } finally {
-      setDownloading((prev) => ({ ...prev, [jobId]: false }));
-    }
+    } catch (e) { alert(e.message); }
+    finally { setDownloading((p) => ({ ...p, [id]: false })); }
   };
 
-  const handleCancel = async (jobId) => {
-    try {
-      await api.cancelJob(jobId);
-      loadJobs();
-    } catch (e) {
-      alert('Cancel failed: ' + e.message);
-    }
+  const cancel = async (id) => {
+    await api.cancelJob(id).catch(() => {});
+    load();
   };
 
-  if (loading) return <div className="jobs-loading">Loading jobs...</div>;
-  if (jobs.length === 0) return <div className="jobs-empty">No exports yet. Create one above.</div>;
+  if (loading) return <div className="jobs-msg">Loading...</div>;
+
+  const display = limit ? jobs.slice(0, limit) : jobs;
+
+  if (display.length === 0) {
+    return (
+      <div className="jobs-msg">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" opacity=".25"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        <p>{compact ? 'No recent exports' : 'No exports yet. Choose a template above to get started.'}</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="job-list">
-      <h2>All Jobs</h2>
-      <table className="jobs-table">
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Format</th>
-            <th>Status</th>
-            <th>Progress</th>
-            <th>Size</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((job) => (
-            <tr key={job.id}>
-              <td className="file-name">{job.file_name}</td>
-              <td>{job.format?.toUpperCase()}</td>
-              <td><StatusBadge status={job.status} /></td>
-              <td><SheetProgress sheets={job.export_job_sheets} /></td>
-              <td>{formatBytes(job.file_size_bytes)}</td>
-              <td>{formatTime(job.created_at)}</td>
-              <td className="job-actions">
-                {job.status === 'completed' && (
-                  <button
-                    className="btn-download"
-                    onClick={() => handleDownload(job.id)}
-                    disabled={downloading[job.id]}
-                  >
-                    {downloading[job.id] ? '...' : 'Download'}
-                  </button>
-                )}
-                {(job.status === 'running' || job.status === 'pending') && (
-                  <button className="btn-cancel" onClick={() => handleCancel(job.id)}>
-                    Cancel
-                  </button>
-                )}
-                {job.status === 'failed' && (
-                  <span className="error-text" title={job.error_message}>Failed</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="jobs">
+      {!compact && <h2 className="jobs-title">All Exports</h2>}
+      {display.map((j) => {
+        const sheets = j.export_job_sheets || [];
+        const totalItems = sheets.reduce((s, sh) => s + (sh.total_items || 0), 0);
+        const processedItems = sheets.reduce((s, sh) => s + (sh.processed_items || 0), 0);
+        const pct = totalItems > 0 ? Math.round((processedItems / totalItems) * 100) : 0;
+        const isRunning = j.status === 'running' || j.status === 'pending';
+
+        return (
+          <div key={j.id} className={`job-row ${compact ? 'compact' : ''}`}>
+            <div className="job-left">
+              <div className="job-name">{j.file_name}</div>
+              <div className="job-meta">
+                <span className={`job-status ${j.status}`}>
+                  <span className="dot" />
+                  {j.status}
+                </span>
+                <span>{j.format?.toUpperCase()}</span>
+                <span>{fmtBytes(j.file_size_bytes)}</span>
+                <span>{fmtAgo(j.created_at)}</span>
+              </div>
+              {isRunning && (
+                <div className="job-progress">
+                  <div className="progress-track"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
+                  <span className="progress-label">{pct}%</span>
+                </div>
+              )}
+            </div>
+            <div className="job-right">
+              {j.status === 'completed' && (
+                <button className="dl-btn" onClick={() => download(j.id)} disabled={downloading[j.id]}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download
+                </button>
+              )}
+              {isRunning && <button className="cancel-btn" onClick={() => cancel(j.id)}>Cancel</button>}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

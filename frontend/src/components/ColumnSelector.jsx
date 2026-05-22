@@ -8,6 +8,7 @@ export default function ColumnSelector({ entity, selected, onChange }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     api.getColumns(entity).then((data) => {
       setGroups(data.groups);
       setAllColumns(data.allColumns);
@@ -17,84 +18,61 @@ export default function ColumnSelector({ entity, selected, onChange }) {
   }, [entity]);
 
   const toggle = (key) => {
-    onChange(
-      selected.includes(key)
-        ? selected.filter((k) => k !== key)
-        : [...selected, key],
-    );
+    onChange(selected.includes(key) ? selected.filter((k) => k !== key) : [...selected, key]);
   };
 
   const toggleGroup = (groupName) => {
-    const groupKeys = groups[groupName].map((c) => c.key);
-    const allSelected = groupKeys.every((k) => selected.includes(k));
-    if (allSelected) {
-      onChange(selected.filter((k) => !groupKeys.includes(k)));
-    } else {
-      onChange([...new Set([...selected, ...groupKeys])]);
-    }
+    const keys = groups[groupName].map((c) => c.key);
+    const allOn = keys.every((k) => selected.includes(k));
+    onChange(allOn ? selected.filter((k) => !keys.includes(k)) : [...new Set([...selected, ...keys])]);
   };
 
-  const toggleExpand = (groupName) => {
-    setExpanded((prev) => ({ ...prev, [groupName]: !prev[groupName] }));
-  };
-
-  const selectAll = () => onChange(allColumns.map((c) => c.key));
-  const selectNone = () => onChange([]);
-
-  if (loading) return <div className="col-selector-loading">Loading columns...</div>;
+  if (loading) return <div className="col-loading">Loading columns...</div>;
 
   return (
     <div className="col-selector">
-      <div className="col-selector-header">
-        <span className="col-count">{selected.length} of {allColumns.length} columns</span>
-        <div className="col-actions">
-          <button onClick={selectAll} className="btn-link">All</button>
-          <button onClick={selectNone} className="btn-link">None</button>
+      <div className="col-bar">
+        <span>{selected.length} / {allColumns.length} columns</span>
+        <div>
+          <button className="col-action" onClick={() => onChange(allColumns.map((c) => c.key))}>Select all</button>
+          <button className="col-action" onClick={() => onChange([])}>Clear</button>
         </div>
       </div>
-      <div className="col-groups">
-        {Object.entries(groups).map(([groupName, cols]) => {
-          const groupKeys = cols.map((c) => c.key);
-          const selectedCount = groupKeys.filter((k) => selected.includes(k)).length;
-          const isExpanded = expanded[groupName];
-          const hasSlow = cols.some((c) => c.slow);
+      {Object.entries(groups).map(([name, cols]) => {
+        const keys = cols.map((c) => c.key);
+        const count = keys.filter((k) => selected.includes(k)).length;
+        const isOpen = expanded[name];
+        const hasSlow = cols.some((c) => c.slow);
 
-          return (
-            <div key={groupName} className="col-group">
-              <div className="col-group-header" onClick={() => toggleExpand(groupName)}>
-                <span className="expand-icon">{isExpanded ? '▼' : '▶'}</span>
-                <label className="col-group-label">
-                  <input
-                    type="checkbox"
-                    checked={selectedCount === cols.length}
-                    ref={(el) => el && (el.indeterminate = selectedCount > 0 && selectedCount < cols.length)}
-                    onChange={() => toggleGroup(groupName)}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  <span className="group-name">{groupName}</span>
-                  <span className="group-count">({selectedCount}/{cols.length})</span>
-                  {hasSlow && <span className="slow-tag">Slow</span>}
-                </label>
-              </div>
-              {isExpanded && (
-                <div className="col-group-items">
-                  {cols.map((col) => (
-                    <label key={col.key} className="col-item">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(col.key)}
-                        onChange={() => toggle(col.key)}
-                      />
-                      <span>{col.label}</span>
-                      {col.slow && <span className="slow-tag">Slow</span>}
-                    </label>
-                  ))}
-                </div>
-              )}
+        return (
+          <div key={name} className="col-group">
+            <div className="col-group-row" onClick={() => setExpanded((p) => ({ ...p, [name]: !p[name] }))}>
+              <span className={`chevron ${isOpen ? 'open' : ''}`}>&#9654;</span>
+              <input
+                type="checkbox"
+                checked={count === cols.length}
+                ref={(el) => el && (el.indeterminate = count > 0 && count < cols.length)}
+                onChange={() => toggleGroup(name)}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <span className="col-group-name">{name}</span>
+              <span className="col-group-count">{count}/{cols.length}</span>
+              {hasSlow && <span className="slow-label">Slow</span>}
             </div>
-          );
-        })}
-      </div>
+            {isOpen && (
+              <div className="col-items">
+                {cols.map((col) => (
+                  <label key={col.key} className="col-check">
+                    <input type="checkbox" checked={selected.includes(col.key)} onChange={() => toggle(col.key)} />
+                    {col.label}
+                    {col.slow && <span className="slow-label sm">Slow</span>}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

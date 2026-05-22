@@ -13,19 +13,20 @@ export default function MerchantSetup({ onSet }) {
   };
 
   return (
-    <div className="merchant-setup">
-      <div className="setup-card">
-        <h2>Welcome to Exportify</h2>
-        <p>Enter your Merchant ID to get started.</p>
+    <div className="setup-page">
+      <div className="setup-box">
+        <div className="setup-logo">E</div>
+        <h1>Exportify</h1>
+        <p>Bulk export your store data to Excel or CSV</p>
         <form onSubmit={handleSubmit}>
           <input
             type="text"
-            placeholder="Merchant ID (e.g. 196jdfqy1aot)"
+            placeholder="Enter your Merchant ID"
             value={id}
             onChange={(e) => setId(e.target.value)}
             autoFocus
           />
-          <button type="submit" disabled={!id.trim()}>Connect</button>
+          <button type="submit" disabled={!id.trim()}>Connect Store</button>
         </form>
       </div>
     </div>
