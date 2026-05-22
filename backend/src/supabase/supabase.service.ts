@@ -10,7 +10,10 @@ export class SupabaseService {
   constructor(private configService: ConfigService) {
     const url = this.configService.get<string>('SUPABASE_URL');
     const key = this.configService.get<string>('SUPABASE_SERVICE_KEY');
-    this.client = createClient(url, key);
+    this.client = createClient(url, key, {
+      realtime: { transport: undefined as any },
+      auth: { persistSession: false },
+    });
   }
 
   // ─── Merchants ───
