@@ -84,8 +84,11 @@ export class OAuthCallbackService {
         scopes: data.scope,
       };
     } catch (error: any) {
-      const errMsg = error.response?.data?.message || error.message;
-      this.logger.error(`Token exchange failed: ${errMsg}`);
+      const status = error.response?.status;
+      const respData = error.response?.data;
+      this.logger.error(`Token exchange failed — status: ${status}, response: ${JSON.stringify(respData)}, message: ${error.message}`);
+      this.logger.error(`Request was: clientId=${this.clientId}, redirectUri=${this.redirectUri}`);
+      const errMsg = respData?.message || respData?.error || error.message || 'Unknown error';
       throw new Error(`OAuth token exchange failed: ${errMsg}`);
     }
   }
