@@ -28,10 +28,11 @@ export class OAuthCallbackService {
    * Writes token to process.env (immediate) + .env file (persists across restarts).
    */
   async exchangeCodeForToken(code: string) {
-    this.logger.log(`Exchanging authorization code for access token...`);
+    const tokenUrl = `${this.apiBaseUrl}/api/v1/oauth/token`;
+    this.logger.log(`Exchanging code for token — URL: ${tokenUrl}, clientId: ${this.clientId}, redirectUri: ${this.redirectUri}`);
 
     try {
-      const response = await axios.post(`${this.apiBaseUrl}/api/v1/oauth/token`, {
+      const response = await axios.post(tokenUrl, {
         grant_type: 'authorization_code',
         code,
         clientId: this.clientId,
@@ -86,8 +87,8 @@ export class OAuthCallbackService {
     } catch (error: any) {
       const status = error.response?.status;
       const respData = error.response?.data;
-      this.logger.error(`Token exchange failed — status: ${status}, response: ${JSON.stringify(respData)}, message: ${error.message}`);
-      this.logger.error(`Request was: clientId=${this.clientId}, redirectUri=${this.redirectUri}`);
+      this.logger.error(`Token exchange failed — status: ${status}, response: ${JSON.stringify(respData)}, message: ${error.message}, code: ${error.code}`);
+      this.logger.error(`Full error: ${error.stack || error}`);
       const errMsg = respData?.message || respData?.error || error.message || 'Unknown error';
       throw new Error(`OAuth token exchange failed: ${errMsg}`);
     }
