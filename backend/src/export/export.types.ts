@@ -223,6 +223,12 @@ export const ORDER_COLUMNS: ColumnDef[] = [
   { key: 'discount_codes', label: 'Discount Codes', group: 'Discounts', path: 'discount_codes' },
 ];
 
+// Keys of columns with timestamp values — convert UTC to IST
+export const TIMESTAMP_COLUMN_KEYS = new Set([
+  'created_at', 'updated_at', 'processed_at', 'closed_at', 'cancelled_at',
+  'published_at',
+]);
+
 // Keys of columns whose values are in paisa and need dividing by 100
 export const MONEY_COLUMN_KEYS = new Set([
   // Product pricing

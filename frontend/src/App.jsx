@@ -6,13 +6,19 @@ import './App.css';
 
 function App() {
   const [merchantId, setMerchantId] = useState(() => {
-    // Check URL params first (from OAuth redirect or platform embed)
+    // 1. Platform session (Ratio dashboard)
+    const fromSession = sessionStorage.getItem('merchant-mid');
+    if (fromSession) return fromSession;
+
+    // 2. URL params (OAuth redirect)
     const urlParams = new URLSearchParams(window.location.search);
     const fromUrl = urlParams.get('merchant_id');
     if (fromUrl) {
       localStorage.setItem('merchant_id', fromUrl);
       return fromUrl;
     }
+
+    // 3. localStorage fallback
     return localStorage.getItem('merchant_id') || '';
   });
   const [refreshTrigger, setRefreshTrigger] = useState(0);

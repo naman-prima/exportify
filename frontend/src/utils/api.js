@@ -1,17 +1,23 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 // Merchant ID priority:
-// 1. URL query param ?merchant_id=xxx (set by platform or OAuth redirect)
-// 2. localStorage (persisted from previous session)
-// 3. VITE_MERCHANT_ID env var (dev fallback)
+// 1. sessionStorage 'merchant-mid' (set by Ratio platform dashboard)
+// 2. URL query param ?merchant_id=xxx (set by OAuth redirect)
+// 3. localStorage (persisted from previous session)
+// 4. VITE_MERCHANT_ID env var (dev fallback)
 function getMerchantId() {
-  // Check URL params first (embedded app context)
+  // Platform session (Ratio dashboard sets this)
+  const fromSession = sessionStorage.getItem('merchant-mid');
+  if (fromSession) return fromSession;
+
+  // URL params (OAuth redirect)
   const urlParams = new URLSearchParams(window.location.search);
   const fromUrl = urlParams.get('merchant_id');
   if (fromUrl) {
     localStorage.setItem('merchant_id', fromUrl);
     return fromUrl;
   }
+
   return localStorage.getItem('merchant_id') || import.meta.env.VITE_MERCHANT_ID || '';
 }
 

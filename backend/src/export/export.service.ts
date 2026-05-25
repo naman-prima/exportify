@@ -17,6 +17,7 @@ import {
   ORDER_COLUMNS,
   ExportEntityType,
   MONEY_COLUMN_KEYS,
+  TIMESTAMP_COLUMN_KEYS,
 } from './export.types';
 
 @Injectable()
@@ -351,12 +352,15 @@ export class ExportService {
   ): any[] {
     return columns.map((col) => {
       const isMoney = MONEY_COLUMN_KEYS.has(col.key);
+      const isTimestamp = TIMESTAMP_COLUMN_KEYS.has(col.key);
       const arrayMatch = col.path.match(/^(\w+)\[\]\.(.+)$/);
 
       if (arrayMatch) {
         if (arrayItem) {
           const val = this.getNestedValue(arrayItem, arrayMatch[2]) ?? '';
-          return isMoney ? this.paisaToRupees(val) : val;
+          if (isMoney) return this.paisaToRupees(val);
+          if (isTimestamp) return this.utcToIst(val);
+          return val;
         }
         return '';
       }
@@ -373,8 +377,20 @@ export class ExportService {
         return raw.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ');
       }
       if (isMoney) return this.paisaToRupees(raw);
+      if (isTimestamp) return this.utcToIst(raw);
       return raw ?? '';
     });
+  }
+
+  private utcToIst(val: any): string {
+    if (val == null || val === '') return '';
+    try {
+      const date = new Date(val);
+      if (isNaN(date.getTime())) return String(val);
+      return date.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    } catch {
+      return String(val);
+    }
   }
 
   private paisaToRupees(val: any): number | string {
