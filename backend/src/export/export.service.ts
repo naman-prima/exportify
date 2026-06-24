@@ -104,10 +104,11 @@ export class ExportService {
 
     // Run async — don't block the response
     this.runExport(job.id, merchantId, dto.format || 'xlsx', fileName).catch((err) => {
-      this.logger.error(`Export job ${job.id} failed: ${err.message}`);
+      const detail = this.describeError(err);
+      this.logger.error(`Export job ${job.id} failed: ${detail}`, err?.stack);
       this.supabase.updateJobStatus(job.id, {
         status: 'failed',
-        error_message: err.message,
+        error_message: detail,
       });
     });
 
@@ -452,6 +453,39 @@ export class ExportService {
     const num = typeof val === 'string' ? parseFloat(val) : Number(val);
     if (isNaN(num)) return val;
     return parseFloat((num / 100).toFixed(2));
+  }
+
+  /**
+   * Produce a meaningful, non-empty description of an error for logging/storage.
+   * Surfaces axios HTTP status + API response body, falls back through message,
+   * string form, and JSON so we never store an empty error_message again.
+   */
+  private describeError(err: any): string {
+    if (err == null) return 'Unknown error';
+    // Axios-style HTTP error: the useful detail is on the response.
+    if (err.isAxiosError || err.response) {
+      const status = err.response?.status;
+      const data = err.response?.data;
+      const body =
+        data == null
+          ? ''
+          : typeof data === 'string'
+            ? data
+            : (data.message ?? JSON.stringify(data));
+      const where = err.config?.method
+        ? ` (${String(err.config.method).toUpperCase()} ${err.config?.url ?? ''})`
+        : '';
+      return `HTTP ${status ?? '?'}${where}: ${body || err.message || 'request failed'}`.trim();
+    }
+    if (typeof err === 'string') return err || 'Unknown error';
+    if (err.message) return err.message;
+    try {
+      const json = JSON.stringify(err);
+      if (json && json !== '{}') return json;
+    } catch {
+      /* circular — fall through */
+    }
+    return err.toString?.() || 'Unknown error';
   }
 
   private getNestedValue(obj: any, path: string): any {
