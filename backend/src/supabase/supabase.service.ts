@@ -59,6 +59,20 @@ export class SupabaseService {
     return merchant?.access_token || null;
   }
 
+  async updateMerchantTokens(
+    merchantId: string,
+    accessToken: string,
+    refreshToken?: string,
+  ) {
+    const update: Record<string, string> = { access_token: accessToken };
+    if (refreshToken) update.refresh_token = refreshToken;
+    const { error } = await this.client
+      .from('merchants')
+      .update(update)
+      .eq('merchant_id', merchantId);
+    if (error) this.logger.error('updateMerchantTokens failed', error);
+  }
+
   // ─── Export Jobs ───
 
   async createExportJob(data: {
@@ -169,5 +183,106 @@ export class SupabaseService {
       .createSignedUrl(storagePath, expiresIn);
     if (error) return null;
     return data?.signedUrl;
+  }
+
+  // ─── Import Jobs ───
+
+  async createImportJob(data: {
+    merchant_id: string;
+    entity: string;
+    format: string;
+    file_name: string;
+  }) {
+    const { data: job, error } = await this.client
+      .from('import_jobs')
+      .insert({
+        merchant_id: data.merchant_id,
+        entity: data.entity,
+        format: data.format,
+        file_name: data.file_name,
+        status: 'uploaded',
+      })
+      .select()
+      .single();
+    if (error || !job) {
+      this.logger.error('createImportJob failed', error);
+      return null;
+    }
+    return job;
+  }
+
+  async updateImportJob(
+    jobId: string,
+    update: Record<string, any>,
+  ) {
+    const { error } = await this.client
+      .from('import_jobs')
+      .update(update)
+      .eq('id', jobId);
+    if (error) this.logger.error('updateImportJob failed', error);
+  }
+
+  async getImportJob(jobId: string) {
+    const { data: job } = await this.client
+      .from('import_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .single();
+    return job;
+  }
+
+  async getImportJobWithRows(jobId: string) {
+    const { data: job } = await this.client
+      .from('import_jobs')
+      .select('*, import_job_rows(*)')
+      .eq('id', jobId)
+      .single();
+    return job;
+  }
+
+  async getImportJobsByMerchant(merchantId: string, limit = 20) {
+    const { data } = await this.client
+      .from('import_jobs')
+      .select('*')
+      .eq('merchant_id', merchantId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    return data || [];
+  }
+
+  async insertImportJobRow(data: {
+    job_id: string;
+    row_index: number;
+    entity_id?: string;
+    operation: string;
+    status: string;
+    error_message?: string;
+  }) {
+    const { error } = await this.client
+      .from('import_job_rows')
+      .insert(data);
+    if (error) this.logger.error('insertImportJobRow failed', error);
+  }
+
+  async uploadImportFile(fileBuffer: Buffer, storagePath: string, contentType: string) {
+    const { data, error } = await this.client.storage
+      .from('imports')
+      .upload(storagePath, fileBuffer, { contentType, upsert: true });
+    if (error) {
+      this.logger.error('uploadImportFile failed', error);
+      return null;
+    }
+    return data?.path;
+  }
+
+  async downloadImportFile(storagePath: string): Promise<Buffer | null> {
+    const { data, error } = await this.client.storage
+      .from('imports')
+      .download(storagePath);
+    if (error || !data) {
+      this.logger.error('downloadImportFile failed', error);
+      return null;
+    }
+    return Buffer.from(await data.arrayBuffer());
   }
 }
