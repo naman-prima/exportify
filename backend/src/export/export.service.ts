@@ -18,6 +18,8 @@ import {
   ExportEntityType,
   MONEY_COLUMN_KEYS,
   TIMESTAMP_COLUMN_KEYS,
+  ATTRIBUTES_COLUMN_KEY,
+  buildAttributeColumns,
 } from './export.types';
 
 @Injectable()
@@ -26,11 +28,16 @@ export class ExportService {
   private readonly apiBaseUrl: string;
   private readonly exportsDir: string;
 
+  private readonly clientId: string;
+  private readonly clientSecret: string;
+
   constructor(
     private configService: ConfigService,
     private supabase: SupabaseService,
   ) {
     this.apiBaseUrl = this.configService.get<string>('RATIO_API_BASE_URL');
+    this.clientId = this.configService.get<string>('RATIO_APP_ID', '');
+    this.clientSecret = this.configService.get<string>('RATIO_APP_SECRET', '');
     this.exportsDir = path.join(process.cwd(), 'exports');
     if (!fs.existsSync(this.exportsDir)) {
       fs.mkdirSync(this.exportsDir, { recursive: true });
@@ -131,24 +138,36 @@ export class ExportService {
       const currentJob = await this.supabase.getJobWithSheets(jobId);
       if (currentJob?.status === 'cancelled') return;
 
-      const columns = getColumnDefs(sheet.entity, sheet.columns);
+      let columns = getColumnDefs(sheet.entity, sheet.columns);
       const needsVariants =
         sheet.entity === 'products' && columns.some((c) => c.path.startsWith('variants[]'));
 
       const queryParams = this.buildQueryParams(sheet.filters || []);
       if (needsVariants) queryParams.show_variants = 'true';
 
-      // Fetch all pages (100 at a time)
+      // Fetch all pages (100 at a time), with automatic token refresh on 401
       const allItems = await this.fetchAllPages(
         sheet.entity,
         queryParams,
-        merchant.access_token,
+        merchantId,
         sheet.id,
         jobId,
       );
 
       // Apply client-side date filters (API doesn't support date filtering)
       const filteredItems = this.applyDateFilters(allItems, sheet.filters || []);
+
+      // Expand the dynamic "Attributes" column into one column per discovered key
+      const attrIdx = columns.findIndex((c) => c.key === ATTRIBUTES_COLUMN_KEY);
+      if (attrIdx !== -1) {
+        const attrCols = buildAttributeColumns(filteredItems);
+        columns = [
+          ...columns.slice(0, attrIdx),
+          ...attrCols,
+          ...columns.slice(attrIdx + 1),
+        ];
+        this.logger.log(`${sheet.entity}: expanded attributes into ${attrCols.length} columns`);
+      }
 
       const rows = this.flattenToRows(filteredItems, columns, sheet.entity);
 
@@ -189,7 +208,7 @@ export class ExportService {
   private async fetchAllPages(
     entity: ExportEntityType,
     queryParams: Record<string, string>,
-    accessToken: string,
+    merchantId: string,
     sheetId: string,
     jobId: string,
   ): Promise<any[]> {
@@ -197,7 +216,7 @@ export class ExportService {
     let page = 1;
     const limit = 100;
 
-    const firstResponse = await this.fetchPage(entity, { ...queryParams, page: '1', limit: String(limit) }, accessToken);
+    const firstResponse = await this.fetchPageWithRefresh(entity, { ...queryParams, page: '1', limit: String(limit) }, merchantId);
     const items = this.extractItems(firstResponse, entity);
     allItems.push(...items);
 
@@ -214,16 +233,15 @@ export class ExportService {
     if (total > limit) {
       const totalPages = Math.ceil(total / limit);
       for (page = 2; page <= totalPages; page++) {
-        // Check cancellation every 5 pages
         if (page % 5 === 0) {
           const currentJob = await this.supabase.getJobWithSheets(jobId);
           if (currentJob?.status === 'cancelled') break;
         }
 
-        const response = await this.fetchPage(
+        const response = await this.fetchPageWithRefresh(
           entity,
           { ...queryParams, page: String(page), limit: String(limit) },
-          accessToken,
+          merchantId,
         );
         const pageItems = this.extractItems(response, entity);
         allItems.push(...pageItems);
@@ -239,17 +257,52 @@ export class ExportService {
     return allItems;
   }
 
-  private async fetchPage(
+  private async fetchPageWithRefresh(
     entity: ExportEntityType,
     params: Record<string, string>,
-    accessToken: string,
+    merchantId: string,
   ): Promise<any> {
     const endpoint = entity === 'products' ? '/api/v1/products' : '/api/v1/orders';
-    const response = await axios.get(`${this.apiBaseUrl}${endpoint}`, {
-      headers: this.getHeaders(accessToken),
-      params,
+    const merchant = await this.supabase.getMerchant(merchantId);
+    if (!merchant) throw new Error('Merchant not found');
+
+    try {
+      const response = await axios.get(`${this.apiBaseUrl}${endpoint}`, {
+        headers: this.getHeaders(merchant.access_token),
+        params,
+      });
+      return response.data;
+    } catch (err: any) {
+      if (err.response?.status !== 401 || !merchant.refresh_token) throw err;
+
+      this.logger.log(`Token expired for ${merchantId}, refreshing...`);
+      const newToken = await this.refreshMerchantToken(merchantId, merchant.refresh_token);
+
+      const response = await axios.get(`${this.apiBaseUrl}${endpoint}`, {
+        headers: this.getHeaders(newToken),
+        params,
+      });
+      return response.data;
+    }
+  }
+
+  private async refreshMerchantToken(merchantId: string, refreshToken: string): Promise<string> {
+    const response = await axios.post(`${this.apiBaseUrl}/api/v1/oauth/token`, {
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
     });
-    return response.data;
+
+    const data = response.data;
+    await this.supabase.updateMerchantTokens(
+      merchantId,
+      data.access_token,
+      data.refresh_token,
+    );
+
+    this.logger.log(`Token refreshed for merchant ${merchantId}`);
+    return data.access_token;
   }
 
   private extractItems(response: any, entity: ExportEntityType): any[] {
@@ -378,6 +431,7 @@ export class ExportService {
       }
       if (isMoney) return this.paisaToRupees(raw);
       if (isTimestamp) return this.utcToIst(raw);
+      if (raw !== null && typeof raw === 'object') return JSON.stringify(raw);
       return raw ?? '';
     });
   }
@@ -483,6 +537,7 @@ export class ExportService {
         Customer: 'FF4682B4',
         Payment: 'FF9932CC',
         'Source & Tracking': 'FF20B2AA',
+        Attributes: 'FF556B2F',
         External: 'FF708090',
         'Shipping Address': 'FF2E8B57',
         'Billing Address': 'FFCD5C5C',

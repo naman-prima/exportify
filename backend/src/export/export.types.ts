@@ -161,6 +161,9 @@ export const ORDER_COLUMNS: ColumnDef[] = [
   { key: 'checkout_token', label: 'Checkout Token', group: 'Source & Tracking', path: 'checkout_token' },
   { key: 'customer_locale', label: 'Customer Locale', group: 'Source & Tracking', path: 'customer_locale' },
 
+  // Attributes (dynamic — expands into one column per key found in order.attributes)
+  { key: 'attributes', label: 'Attributes', group: 'Attributes', path: 'attributes' },
+
   // External References
   { key: 'external_order_id', label: 'External Order ID', group: 'External', path: 'external_order_id' },
   { key: 'external_order_number', label: 'External Order Number', group: 'External', path: 'external_order_number' },
@@ -244,6 +247,34 @@ export const MONEY_COLUMN_KEYS = new Set([
   // Line item pricing
   'line_price', 'line_total_discount',
 ]);
+
+// Placeholder column key that expands into one column per discovered attribute key.
+export const ATTRIBUTES_COLUMN_KEY = 'attributes';
+// Prefix for the dynamically-generated per-key attribute columns.
+export const ATTRIBUTE_COLUMN_PREFIX = 'attr:';
+
+/**
+ * Build dynamic columns from the `attributes` object on each order.
+ * Each distinct key across all items becomes its own column, so the value lands
+ * in the respective row. Keys are sorted for a stable column order.
+ */
+export function buildAttributeColumns(items: any[]): ColumnDef[] {
+  const keys = new Set<string>();
+  for (const item of items) {
+    const attrs = item?.attributes;
+    if (attrs && typeof attrs === 'object' && !Array.isArray(attrs)) {
+      for (const k of Object.keys(attrs)) keys.add(k);
+    }
+  }
+  return Array.from(keys)
+    .sort()
+    .map((k) => ({
+      key: `${ATTRIBUTE_COLUMN_PREFIX}${k}`,
+      label: k,
+      group: 'Attributes',
+      path: `attributes.${k}`,
+    }));
+}
 
 // Group columns by group name for the column selection UI
 export function getColumnGroups(entity: ExportEntityType): Record<string, ColumnDef[]> {
