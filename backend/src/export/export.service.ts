@@ -267,24 +267,60 @@ export class ExportService {
     const merchant = await this.supabase.getMerchant(merchantId);
     if (!merchant) throw new Error('Merchant not found');
 
-    try {
-      const response = await axios.get(`${this.apiBaseUrl}${endpoint}`, {
-        headers: this.getHeaders(merchant.access_token),
-        params,
-      });
-      return response.data;
-    } catch (err: any) {
-      if (err.response?.status !== 401 || !merchant.refresh_token) throw err;
+    let token = merchant.access_token;
+    let refreshed = false;
+    const maxAttempts = 4;
+    let lastErr: any;
 
-      this.logger.log(`Token expired for ${merchantId}, refreshing...`);
-      const newToken = await this.refreshMerchantToken(merchantId, merchant.refresh_token);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await axios.get(`${this.apiBaseUrl}${endpoint}`, {
+          headers: this.getHeaders(token),
+          params,
+          timeout: 30000,
+        });
+        return response.data;
+      } catch (err: any) {
+        lastErr = err;
 
-      const response = await axios.get(`${this.apiBaseUrl}${endpoint}`, {
-        headers: this.getHeaders(newToken),
-        params,
-      });
-      return response.data;
+        // Expired token: refresh once and retry immediately (doesn't consume a backoff attempt).
+        if (err.response?.status === 401 && merchant.refresh_token && !refreshed) {
+          this.logger.log(`Token expired for ${merchantId}, refreshing...`);
+          token = await this.refreshMerchantToken(merchantId, merchant.refresh_token);
+          refreshed = true;
+          attempt--;
+          continue;
+        }
+
+        // Transient network error / 5xx / 429: back off and retry.
+        if (this.isTransientError(err) && attempt < maxAttempts) {
+          const delayMs = 500 * 2 ** (attempt - 1);
+          this.logger.warn(
+            `${entity} fetch attempt ${attempt}/${maxAttempts} failed (${this.describeError(err)}); retrying in ${delayMs}ms`,
+          );
+          await this.sleep(delayMs);
+          continue;
+        }
+
+        throw err;
+      }
     }
+
+    throw lastErr;
+  }
+
+  /** A failure worth retrying: no HTTP response (network/TLS/DNS) or a transient server status. */
+  private isTransientError(err: any): boolean {
+    if (err?.response) {
+      const status = err.response.status;
+      return status >= 500 || status === 429;
+    }
+    // No response → connection-level failure (AggregateError, resets, timeouts, DNS).
+    return true;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async refreshMerchantToken(merchantId: string, refreshToken: string): Promise<string> {
@@ -475,7 +511,15 @@ export class ExportService {
       const where = err.config?.method
         ? ` (${String(err.config.method).toUpperCase()} ${err.config?.url ?? ''})`
         : '';
-      return `HTTP ${status ?? '?'}${where}: ${body || err.message || 'request failed'}`.trim();
+      if (!err.response) {
+        // Connection-level failure: surface the code(s) instead of a useless "HTTP ?".
+        const codes = Array.isArray(err.errors)
+          ? err.errors.map((e: any) => e?.code || e?.message).filter(Boolean).join(', ')
+          : '';
+        const detail = codes || err.code || err.message || 'connection failed';
+        return `Network error${where}: ${detail}`.trim();
+      }
+      return `HTTP ${status}${where}: ${body || err.message || 'request failed'}`.trim();
     }
     if (typeof err === 'string') return err || 'Unknown error';
     if (err.message) return err.message;
